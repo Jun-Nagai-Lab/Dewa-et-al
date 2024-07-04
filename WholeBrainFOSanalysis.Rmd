@@ -1,0 +1,150 @@
+---
+title: "Whole Brain FOS Analysis"
+---
+```{r}
+library(readxl)
+library(tidyverse)
+library(car)
+library(dunn.test)
+library(dplyr)
+
+  setwd("~/Downloads") #set this to where your input file is
+  
+  #if importing one matrix of counts
+  Table <- as.data.frame(read_excel("FOS_FDR.xlsx"))
+  orig_names <- as.data.frame(Table$name)
+  Table$name <- gsub("[^[:alnum:]]", "_", Table$name)
+  orig_names$newname <- Table$name
+  colnames(orig_names) <- c("orig","newname")
+  rownames(Table) <- Table$name
+  
+  Table <- Table[,-c(24:35)]
+  
+  counts <- pivot_longer(Table, cols = -name, names_to = "Sample_ID", values_to = "Count")
+  group_info <- data.frame(Sample_ID = c("NS1","NS2","NS3","NS4","NS5","NS6","FC1","FC2", "FC3","FC4","FR1","FR2","FR3","FR4","RFR1","RFR2","RFR3","RFR4","NFR1","NFR2","NFR3","NFR4","NvFC1","NvFC2","NvFC3","NvFC4","CtxB1","CtxB2","CtxB3","CtxB4","FRPROP1","FRPROP2","FRPROP3","FRPROP4"),
+ Group = c("NS","NS","NS","NS","NS","NS","FC","FC", "FC","FC","FR","FR","FR","FR","RFR","RFR","RFR","RFR","NFR","NFR","NFR","NFR","NvFC","NvFC","NvFC","NvFC","CtxB","CtxB","CtxB","CtxB","FRPROP","FRPROP","FRPROP","FRPROP"))
+  counts <- merge(counts, group_info, by = "Sample_ID")
+  counts$Count <- as.integer(counts$Count)
+  
+  #run levene's test for each brain region
+  levene <- lapply(split(counts, counts$name), function(i){
+  leveneTest(lm(Count ~ Group, data = i))})
+
+  levene_df <- do.call(rbind, lapply(levene, broom::tidy))
+  levene_df$name <- rownames(levene_df)
+  
+  #extract regions that failed levene's test to run KW tests 
+  for_KW <- levene_df[levene_df$p.value <= 0.05,]
+  for_KW <- for_KW[complete.cases(for_KW), ]
+  for_KW <- counts[counts$name %in% for_KW$name,]
+  KW <- lapply(split(for_KW, for_KW$name), function(i){
+  kruskal.test(Count ~ Group, data = i)})
+  KW_df <- do.call(rbind, lapply(KS, broom::tidy))
+  
+  KW_df$name <- rownames(KS_df)
+  filt_KW <- KW_df[KW_df$p.value<=0.05,]
+  filt_KW <- for_KW[for_KW$name %in% filt_KW$name,]
+  
+  #dunn's test
+  dunn <- lapply(split(for_KW, for_KW$name), function(i){dunn.test(x = i$Count, g = i$Group,
+          method = "bonferroni")})
+  list_of_datasets_named <- lapply(names(dunn), function(name) {
+    df <- dunn[[name]]
+    df$name <- name
+    return(df)
+  })
+
+  #combine into a single dataframe
+  dunn_df <- bind_rows(list_of_datasets_named)
+  dunn_df$comparisons <- gsub(pattern = " - ", replacement = ".", dunn_df$comparisons)
+
+  #pivot to wide format
+  dunn_wide <- dunn_df %>%
+    pivot_wider(names_from = comparisons, values_from = P.adjusted, 
+                values_fill = list(P.adjusted = NA), id_cols = "name")
+  origrownames <- dunn_wide$name
+  dunn_wide <- dunn_wide[, -1]
+  dunn_wide <- dunn_wide[c("FR.NS","FC.NS","CtxB.NS","FRPROP.NS","NFR.NS","FC.FR","NS.NvFC", "NS.RFR")]
+  rownames(dunn_wide) <- origrownames
+  
+  #run anova on regions that passed levene's test
+  for_anova <- levene_df[levene_df$p.value > 0.05,]
+  for_anova <- for_anova[complete.cases(for_anova), ]
+  for_anova <- counts[counts$name %in% for_anova$name,]
+  anova <- lapply(split(for_anova, for_anova$name), function(i){
+  aov(Count ~ Group, data = i)})
+  anova_df <- do.call(rbind, lapply(anova, broom::tidy))
+  
+  p_values <- lapply(split(for_anova, for_anova$name), function(df) {
+  anova_result <- aov(Count ~ Group, data = df)
+  summary_result <- summary(anova_result)
+  p_value <- summary_result[[1]]$"Pr(>F)"[1]
+  })
+  filt_anova <- anova[p_values<=0.05]
+    
+  #tukey's test
+  tukey <- sapply(anova, function(x) TukeyHSD(x, "Group", ordered = FALSE))
+  tukey_df <- as.data.frame(do.call(rbind, Map(cbind, Name = names(tukey), tukey)))
+  tukey_df$Name <- gsub(pattern = ".Group", replacement = "", tukey_df$Name, fixed=TRUE)
+  tukey_df$comp <- rownames(tukey_df)
+  tukey_df <- tukey_df[,-c(2:4)]
+  tukey_df$comp <- gsub(pattern = "\\.[0-9]+$", replacement = "", tukey_df$comp, fixed)
+  tukey_df$comp <- gsub(pattern = "NS.FRPROP", replacement = "FRPROP.NS", tukey_df$comp, fixed)
+  tukey_df$comp <- gsub(pattern = "NS.FR", replacement = "FR.NS", tukey_df$comp, fixed)
+  tukey_df$comp <- gsub(pattern = "NS.FC", replacement = "FC.NS", tukey_df$comp, fixed)
+  tukey_df$comp <- gsub(pattern = "NS.CtxB", replacement = "CtxB.NS", tukey_df$comp, fixed)
+  tukey_df$comp <- gsub(pattern = "NS.NFR", replacement = "NFR.NS", tukey_df$comp, fixed)
+  tukey_df$comp <- gsub(pattern = "FR.FC", replacement = "FC.FR", tukey_df$comp, fixed)
+  tukey_df$comp <- gsub(pattern = "NvFC.NS", replacement = "NS.NvFC", tukey_df$comp, fixed)
+  tukey_df$comp <- gsub(pattern = "RFR.NS", replacement = "NS.RFR", tukey_df$comp, fixed)
+  tukey_wide <- pivot_wider(tukey_df, names_from = "comp", values_from = "p adj")
+  origrownames <- tukey_wide$Name
+  tukey_wide <- tukey_wide[, -1]
+  tukey_wide <- tukey_wide[c("FR.NS","FC.NS","CtxB.NS","FRPROP.NS","NFR.NS","FC.FR","NS.NvFC", "NS.RFR")]
+  rownames(tukey_wide) <- origrownames
+  
+  #combine results from post-hoc tests
+  fullposthoc <- rbind(tukey_wide, dunn_wide)
+  row.names(fullposthoc) <- c(row.names(tukey_wide), row.names(dunn_wide))
+  fullposthocname <- rownames(fullposthoc)
+  
+  if (is.data.frame(fullposthoc)) {
+  fullposthoc <- as.matrix(fullposthoc)
+  }
+  
+  #calculate FDR values
+  p_values_vector <- as.vector(fullposthoc)
+  adjusted_p_values_vector <- p.adjust(p_values_vector, method = "BH")
+  adjusted_p_values_global <- matrix(adjusted_p_values_vector, nrow = nrow(fullposthoc), ncol = ncol(fullposthoc))
+  colnames(adjusted_p_values_global) <- colnames(fullposthoc)
+  rownames(adjusted_p_values_global) <- fullposthocname
+  adjusted_p_values_global <-as.data.frame(adjusted_p_values_global)
+  adjusted_p_values_global$name <- rownames(adjusted_p_values_global)
+  colnames(adjusted_p_values_global) <- c("FC.FR.fdr","FC.NS.fdr","FR.NS.fdr", "name")
+  x <- dplyr::left_join(Table, adjusted_p_values_global, by = "name")
+  write.csv(x, "globalfdr.csv")
+  
+  #pull results into one excel file
+  anova_df <- anova_df %>%
+  filter(term != "Residuals")
+  anova_df$name <- rownames(anova_df)
+  anova_df$name <- gsub(pattern = "\\.[0-9]+$", replacement = "", anova_df$name, fixed)
+  anova_df <- anova_df[,-c(1:2)]
+  colnames(anova_df) <- c("anova.sumsq", "anova.meansq", "anova.stat","anova.pvalue", "name")
+  KS_df$name <- rownames(KS_df)
+  KS_df <- KS_df[,-c(3:4)]
+  colnames(KS_df) <- c("KS.stat", "KS.pvalue", "name")
+  levene_df <- levene_df[,-c(3:4)]
+  colnames(levene_df) <- c("levene.stat", "levene.pvalue", "name")
+  fullTable <- dplyr::left_join(Table, levene_df, by = "name")
+  fullTable <- dplyr::left_join(fullTable, anova_df, by = "name")
+  fullTable <- dplyr::left_join(fullTable, KS_df, by = "name")
+  fullposthoc <- as.data.frame(fullposthoc)
+  fullposthoc$name <- rownames(fullposthoc)
+  fullTable <- dplyr::left_join(fullTable, fullposthoc, by = "name")
+  fullTable <- dplyr::left_join(fullTable, adjusted_p_values_global, by = "name")
+  
+  write.csv(fullTable, "fullwholebrainFOS_FCFRNFR.csv")
+
+```
+
