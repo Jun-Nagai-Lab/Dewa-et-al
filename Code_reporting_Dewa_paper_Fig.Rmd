@@ -1,0 +1,141 @@
+---
+title: "Code_reporting_Dewa_paper"
+output: html_document
+date: "2024-07-05"
+---
+
+```{r}
+library(Seurat)
+library(ggrepel)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+library(sctransform)
+library(patchwork)
+library(cowplot)
+library(magrittr)
+```
+
+```{r}
+all_data <- readRDS("20240418_ABCD_KK.rds")
+```
+
+```{r}
+all_data <- FindNeighbors(all_data, dims = 1:30)
+all_data <- FindClusters(all_data, resolution = 0.4)
+all_data <- RunUMAP(object = all_data, dims = 1:30)
+all_data <- RunTSNE(object = all_data, dims = 1:30)
+```
+
+```{r}
+Idents(all_data) <- "group"
+NoFC_data <- subset(all_data, idents = "A_NoFC")
+FC_data <- subset(all_data, idents = "B_FC")
+NoFR_data <- subset(all_data, idents = "C_NoFR")
+FR_data <- subset(all_data, idents = "D_FR")
+```
+
+```{r Figure 5A}
+Idents(all_data) <- "seurat_clusters"
+DimPlot(object = all_data, reduction = "tsne", label = FALSE)
+```
+
+```{r Figure 5B}
+DimPlot(object = all_data, reduction = "tsne", split.by = "group", label = FALSE, label.size = 3.5, ncol = 4)
+```
+
+```{r Figure 5C left}
+Idents(all_data) <- "group"
+levels(all_data) <- c("D_FR", "C_NoFR", "B_FC", "A_NoFC")
+DotPlot(all_data, features = c("rna_Fos"), col.min = -1, col.max = 1, scale.max = 5, scale.min = 1, dot.min = 0, dot.scale = 10, scale.by = "radius", scale=F) & scale_color_gradientn(colours = c("gray75", "gray85", "gray87", "gray90", "gray92", "darkseagreen1","green3"))
+```
+
+```{r Figure 5C right}
+Idents(all_data) <- "group"
+levels(all_data) <- c("D_FR", "C_NoFR", "B_FC", "A_NoFC")
+DotPlot(all_data, features = c("rna_Adra1a", "rna_Adra1b", "rna_Adra2a", "rna_Adra2b", "rna_Adrb1", "rna_Adrb2", "rna_Adrb3"), col.min = -0.7, col.max = 0.5, scale.max = 40, scale.min = 1, dot.min = 0, dot.scale = 10, scale.by = "radius") & scale_color_gradientn(colours = c("gray75", "gray85", "gray87", "gray90", "gray92", "darkseagreen1","green3"))
+```
+
+```{r Figure 5D Fos}
+Idents(FR_data) <- "seurat_clusters"
+FR_data@active.ident <- factor(FR_data@active.ident, 
+                            levels=c("3", "2", "1", "0"))
+DotPlot(FR_data, features = c("rna_Fos"), col.min = -0.5, col.max = 1, scale.max = 5, scale.min = 1, dot.min = 0, dot.scale = 10, scale.by = "radius")  & scale_color_gradientn(colours = c("gray75", "gray85", "gray87", "gray90", "gray92", "darkseagreen1","green3"))
+```
+
+```{r Figure 5D Adrb1}
+Idents(FR_data) <- "seurat_clusters"
+levels(FR_data) <- c("3", "2", "1", "0")
+DotPlot(FR_data, features = c("rna_Adrb1"), col.min = -0.5, col.max = 1, scale.max = 30, scale.min = 1, dot.min = 0, dot.scale = 10, scale.by = "radius") & scale_color_gradientn(colours = c("gray75", "gray85", "gray87", "gray90", "gray92", "darkseagreen1","green3"))
+```
+
+```{r}
+FR_adrb1_positive <- subset(FR_data, subset =  rna_Adrb1 >= 0.1)
+FR_adrb1_negative <- subset(FR_data, subset =  rna_Adrb1 < 0.1)
+
+FR_adrb1_positive@meta.data$adrb1 <- "positive"
+FR_adrb1_negative@meta.data$adrb1 <- "negative"
+
+FR_adrb1 <- merge(FR_adrb1_positive, y = FR_adrb1_negative, add.cell.ids = c("positive", "negative"), project = "adrb1")
+```
+
+```{r Figure 5E}
+Idents(FR_adrb1) <- "adrb1"
+FR_adrb1_posiVsNega_DEG <- FindMarkers(FR_adrb1, ident.1 = "positive", ident.2 = "negative",
+                         group.by = "adrb1", min.pct = 0.25, logfc.threshold = 0)
+```
+
+```{r}
+Idents(FR_adrb1) <- "adrb1"
+levels(FR_adrb1) <- c("negative", "positive")
+VlnPlot(object = FR_adrb1, features = c("rna_Igfbp2"), ncol = 4, pt.size = 0.5)
+```
+
+```{r Figure 5F}
+Idents(FR_adrb1) <- "adrb1"
+levels(FR_adrb1) <- c("negative", "positive")
+png("adrb1_positiveVsNegative_igfbp2_exp0.1.png", type="quartz", width=9000, height=4500, res=1200)
+VlnPlot(object = FR_adrb1, features = c("rna_Igfbp2"), ncol = 4, pt.size = 0.5)
+
+
+
+FR_adrb1_posi_igfbp2_expression <- FetchData(object = FR_adrb1_positive, vars = "rna_Igfbp2")
+FR_adrb1_nega_igfbp2_expression <- FetchData(object = FR_adrb1_negative, vars = "rna_Igfbp2")
+```
+
+
+```{r}
+NoFC_data@meta.data$merge <- "merge"
+FC_data@meta.data$merge <- "merge"
+NoFR_data@meta.data$merge <- "merge"
+FR_data@meta.data$merge <- "merge"
+
+all_group_merge_data <- merge(NoFC_data, y = c(FC_data, NoFR_data, FR_data), project = "merge")
+```
+
+```{r Figure S5A}
+Idents(all_group_merge_data) <- "merge"
+VlnPlot(object = all_group_merge_data, features = c("rna_Aldoc", "rna_Cx3cr1","rna_Mbp", "rna_Pdgfra", "rna_Cldn5", "rna_Kcnj13"), ncol = 8, pt.size = 0, y.max=6, cols="midnightblue")
+```
+
+```{r Figure S5B}
+FeaturePlot(object = all_data, features = c('rna_Aldoc', "rna_Atp1b2", "rna_Slc1a3"), reduction = "tsne", ncol = 3, order=T) &
+  scale_color_gradientn(colours = c("gray88", "midnightblue"))
+```
+
+```{r Figure S5C}
+Idents(all_data) <- "seurat_clusters"
+FeaturePlot(object = all_data, features = c("rna_Epha5", "rna_Gria1", "rna_Fabp5", "rna_Glis3"), reduction = "tsne", pt.size = 1, ncol = 1, min.cutoff = 1.5, max.cutoff = 2, order =T) &
+  scale_color_gradientn(colours = c("gray88", "midnightblue"))
+```
+
+```{r Figure S5D}
+Idents(all_data) <- "seurat_clusters"
+DimPlot(object = all_data, reduction = "tsne", split.by = "sample", label = FALSE, label.size = 0.5, pt.size=0.3, ncol = 4) + RotatedAxis()
+```
+
+```{r Figure S5E}
+ggplot(all_data@meta.data, aes(x=group, fill=seurat_clusters)) + geom_bar(position = "fill", colour = c("black")) + theme(panel.background = element_rect(fill = "white"), axis.text.x = element_text(size=12, angle = 45, hjust=0.95, vjust=0.95), axis.line = element_line(size = 0.4, colour = "black"))
+```
+
+

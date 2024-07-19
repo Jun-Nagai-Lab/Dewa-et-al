@@ -1,0 +1,407 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r}
+library(Seurat)
+library(ggrepel)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+library(sctransform)
+library(patchwork)
+library(cowplot)
+```
+
+
+```{r}
+datA <- Read10X(data.dir = "sample_filtered_feature_bc_matrix1")
+datB <- Read10X(data.dir = "sample_filtered_feature_bc_matrix2")
+datC <- Read10X(data.dir = "sample_filtered_feature_bc_matrix3")
+```
+
+```{r}
+datA_1 <- CreateSeuratObject(counts = datA$'Gene Expression', project = "sample_A", min.cells = 3, min.features = 100)
+datB_1 <- CreateSeuratObject(counts = datB$'Gene Expression', project = "sample_B", min.cells = 3, min.features = 100)
+datC_1 <- CreateSeuratObject(counts = datC$'Gene Expression', project = "sample_C", min.cells = 3, min.features = 100)
+```
+
+```{r}
+datA_common <- intersect(colnames(datA_1), colnames(datA$Custom))
+datB_common <- intersect(colnames(datB_1), colnames(datB$Custom))
+datC_common <- intersect(colnames(datC_1), colnames(datC$Custom))
+
+datA_1[["HashTag"]] <- CreateAssayObject(counts = (datA$Custom[ ,datA_common]))
+datB_1[["HashTag"]] <- CreateAssayObject(counts = (datB$Custom[ ,datB_common]))
+datC_1[["HashTag"]] <- CreateAssayObject(counts = (datC$Custom[ ,datC_common]))
+```
+
+```{r}
+datA_1[["percent.mt"]] <- PercentageFeatureSet(datA_1, pattern = "^mt-")
+datB_1[["percent.mt"]] <- PercentageFeatureSet(datB_1, pattern = "^mt-")
+datC_1[["percent.mt"]] <- PercentageFeatureSet(datC_1, pattern = "^mt-")
+```
+
+```{r}
+head(datA_1@meta.data)
+length(datA_1@meta.data$nFeature_RNA) #5283
+head(datB_1@meta.data)
+length(datB_1@meta.data$nFeature_RNA) #3630
+head(datC_1@meta.data)
+length(datC_1@meta.data$nFeature_RNA) #4620
+```
+
+```{r}
+VlnPlot(datA_1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+VlnPlot(datB_1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+VlnPlot(datC_1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+datA_1 <- subset(datA_1, subset = nFeature_RNA > 100 & percent.mt < 6)
+datB_1 <- subset(datB_1, subset = nFeature_RNA > 100 & percent.mt < 6)
+datC_1 <- subset(datC_1, subset = nFeature_RNA > 100 & percent.mt < 6)
+```
+
+```{r}
+#Cell number after thresholding.
+length(datA_1@meta.data$nFeature_RNA) #4297
+length(datB_1@meta.data$nFeature_RNA) #3084
+length(datC_1@meta.data$nFeature_RNA) #3979
+```
+
+```{r}
+#normalization & dimensional reduction
+datA_2 <- NormalizeData(datA_1, normalization.method = "LogNormalize", scale.factor = 10000, verbose = FALSE)
+datB_2 <- NormalizeData(datB_1, normalization.method = "LogNormalize", scale.factor = 10000, verbose = FALSE)
+datC_2 <- NormalizeData(datC_1, normalization.method = "LogNormalize", scale.factor = 10000, verbose = FALSE)
+```
+
+```{r}
+datA_3 <- FindVariableFeatures(datA_2, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+datB_3 <- FindVariableFeatures(datB_2, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+datC_3 <- FindVariableFeatures(datC_2, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+
+```
+
+```{r}
+#Scales and centers features in the dataset
+datA_3.all.genes <- rownames(datA_3)
+datA_3 <- ScaleData(datA_3, features = datA_3.all.genes)
+datB_3.all.genes <- rownames(datB_3)
+datB_3 <- ScaleData(datB_3, features = datB_3.all.genes)
+datC_3.all.genes <- rownames(datC_3)
+datC_3 <- ScaleData(datC_3, features = datC_3.all.genes)
+```
+
+```{r}
+datA_3 <- RunPCA(object = datA_3,  npcs = 30, verbose = FALSE)
+datA_3 <- RunUMAP(object = datA_3, dims = 1:20)
+datA_3 <- FindNeighbors(datA_3, dims = 1:20)
+datA_3 <- FindClusters(datA_3, resolution = 0.5)
+
+Idents(datA_3) <- "seurat_clusters"
+```
+
+```{r}
+DimPlot(object = datA_3, reduction = "umap", label = TRUE)
+```
+
+```{r}
+datB_3 <- RunPCA(object = datB_3,  npcs = 30, verbose = FALSE)
+datB_3 <- RunUMAP(object = datB_3, dims = 1:20)
+datB_3 <- FindNeighbors(datB_3, dims = 1:20)
+datB_3 <- FindClusters(datB_3, resolution = 0.5)
+
+Idents(datB_3) <- "seurat_clusters"
+```
+
+```{r}
+DimPlot(object = datB_3, reduction = "umap", label = TRUE)
+
+```
+
+```{r}
+datC_3 <- RunPCA(object = datC_3,  npcs = 30, verbose = FALSE)
+datC_3 <- RunUMAP(object = datC_3, dims = 1:20)
+datC_3 <- FindNeighbors(datC_3, dims = 1:20)
+datC_3 <- FindClusters(datC_3, resolution = 0.5)
+
+Idents(datC_3) <- "seurat_clusters"
+```
+
+```{r}
+DimPlot(object = datC_3, reduction = "umap", label = TRUE)
+```
+
+```{r}
+DimPlot(object = datA_3, reduction = "umap", label = TRUE)
+VlnPlot(object = datA_3, features = c("rna_Aldoc","rna_Pdgfrb"), ncol = 2, pt.size = 0.5)
+```
+
+```{r}
+datA_3new <- c("Astro", "Astro", "Peri", "Astro", "Astro", "Peri", "Astro", "Peri", "Astro")
+names(datA_3new) <- levels(datA_3)
+datA_3_New <- RenameIdents(datA_3, datA_3new)
+```
+
+```{r}
+levels(datA_3_New)  
+table(datA_3_New@active.ident)
+
+datA_3_Astro <- subset(x = datA_3_New, idents = "Astro")
+levels(datA_3_Astro)
+table(datA_3_Astro@active.ident)
+```
+
+```{r}
+DimPlot(object = datB_3, reduction = "umap", label = TRUE)
+VlnPlot(object = datB_3, features = c("rna_Aldoc","rna_Pdgfrb"), ncol = 2, pt.size = 0.5)
+```
+
+```{r}
+datB_3new <- c("Astro", "Peri", "Astro", "Astro", "Astro", "Astro", "Astro", "Peri", "Peri")
+names(datB_3new) <- levels(datB_3)
+datB_3_New <- RenameIdents(datB_3, datB_3new)
+```
+
+```{r}
+levels(datB_3_New)
+table(datB_3_New@active.ident)
+datB_3_Astro <- subset(x = datB_3_New, idents = "Astro")
+levels(datB_3_Astro)
+table(datB_3_Astro@active.ident)
+```
+
+```{r}
+DimPlot(object = datC_3, reduction = "umap", label = TRUE)
+VlnPlot(object = datC_3, features = c("rna_Aldoc","rna_Pdgfrb"), ncol = 2, pt.size = 0.5)
+```
+
+```{r}
+datC_3new <- c("Astro", "Peri", "Peri", "Astro", "Astro", "Astro", "Astro", "Astro", "Peri", "Peri")
+names(datC_3new) <- levels(datC_3)
+datC_3_New <- RenameIdents(datC_3, datC_3new)
+```
+
+```{r}
+levels(datC_3_New)
+table(datC_3_New@active.ident)
+datC_3_Astro <- subset(x = datC_3_New, idents = "Astro")
+levels(datC_3_Astro)
+table(datC_3_Astro@active.ident)
+```
+
+```{r}
+# Normalize HTO data, here we use centered log-ratio (CLR) transformation
+#AstrocyteのHashtagをNomalize
+datA_3_Astro <- NormalizeData(datA_3_Astro, assay = "HashTag", normalization.method = "CLR")
+datB_3_Astro <- NormalizeData(datB_3_Astro, assay = "HashTag", normalization.method = "CLR")
+datC_3_Astro <- NormalizeData(datC_3_Astro, assay = "HashTag", normalization.method = "CLR")
+```
+
+```{r}
+datA_3_Astro@assays$HashTag@counts[,c(1:10,166:176)]
+datB_3_Astro@assays$HashTag@counts[,c(1:10,166:176)]
+datC_3_Astro@assays$HashTag@counts[,c(1:10,166:176)]
+```
+
+```{r}
+datA_4_Astro <- HTODemux(
+  datA_3_Astro,
+  assay = "HashTag",
+  positive.quantile = 0.995,
+  init = 11,
+  nstarts = 100,
+  kfunc = "clara",
+  nsamples = 100,
+  seed = 42,
+  verbose = TRUE
+)
+table(datA_4_Astro$HashTag_classification.global)
+
+
+datB_4_Astro <- HTODemux(
+  datB_3_Astro,
+  assay = "HashTag",
+  positive.quantile = 0.95,
+  init = 4,
+  nstarts = 100,
+  kfunc = "clara",
+  nsamples = 100,
+  seed = 42,
+  verbose = TRUE
+)
+table(datB_4_Astro$HashTag_classification.global)
+
+
+datC_4_Astro <- HTODemux(
+  datC_3_Astro,
+  assay = "HashTag",
+  positive.quantile = 0.99,
+  init = 6,
+  nstarts = 100,
+  kfunc = "clara",
+  nsamples = 100,
+  seed = 42,
+  verbose = TRUE
+)
+table(datC_4_Astro$HashTag_classification.global)
+
+```
+
+```{r}
+table(datA_4_Astro$HashTag_classification.global)
+table(datB_4_Astro$HashTag_classification.global)
+table(datC_4_Astro$HashTag_classification.global)
+```
+
+```{r}
+RidgePlot(datA_4_Astro, assay = "HashTag", features = rownames(datA_4_Astro[["HashTag"]])[1:10], ncol = 5)
+```
+
+```{r}
+RidgePlot(datB_4_Astro, assay = "HashTag", features = rownames(datB_4_Astro[["HashTag"]])[1:10], ncol = 5)
+```
+
+```{r}
+RidgePlot(datC_4_Astro, assay = "HashTag", features = rownames(datC_4_Astro[["HashTag"]])[1:10], ncol = 5)
+```
+
+```{r}
+# First, we will remove negative cells from the object
+datA_4_Astro.subset <- subset(datA_4_Astro, idents = "Negative", invert = TRUE)
+datB_4_Astro.subset <- subset(datB_4_Astro, idents = "Negative", invert = TRUE)
+datC_4_Astro.subset <- subset(datC_4_Astro, idents = "Negative", invert = TRUE)
+
+Idents(datA_4_Astro) <- "HashTag_classification.global"
+Idents(datB_4_Astro) <- "HashTag_classification.global"
+Idents(datC_4_Astro) <- "HashTag_classification.global"
+```
+
+```{r}
+# Extract the singlets
+datA_5 <- subset(datA_4_Astro, idents = "Singlet")
+datB_5 <- subset(datB_4_Astro, idents = "Singlet")
+datC_5 <- subset(datC_4_Astro, idents = "Singlet")
+
+Idents(datA_5) <- "hash.ID"
+Idents(datB_5) <- "hash.ID"
+Idents(datC_5) <- "hash.ID"
+```
+
+```{r}
+A_NoFC_1 <- subset(datA_5, idents = "HashTag-1")
+B_FC_1 <- subset(datA_5, idents = "HashTag-2")
+C_NoFR_1 <- subset(datA_5, idents = "HashTag-3")
+D_FR_1 <- subset(datA_5, idents = "HashTag-4")
+A_NoFC_2 <- subset(datA_5, idents = "HashTag-7")
+B_FC_2 <- subset(datA_5, idents = "HashTag-8")
+C_NoFR_2 <- subset(datA_5, idents = "HashTag-9")
+D_FR_2 <- subset(datA_5, idents = "HashTag-10")
+A_NoFC_3 <- subset(datB_5, idents = "HashTag-13")
+B_FC_3 <- subset(datB_5, idents = "HashTag-14")
+C_NoFR_3 <- subset(datB_5, idents = "HashTag-15")
+D_FR_3 <- subset(datB_5, idents = "HashTag-1")
+A_NoFC_4 <- subset(datB_5, idents = "HashTag-4")
+B_FC_4 <- subset(datB_5, idents = "HashTag-5")
+C_NoFR_4 <- subset(datC_5, idents = "HashTag-6")
+D_FR_4 <- subset(datC_5, idents = "HashTag-7")
+A_NoFC_5 <- subset(datC_5, idents = "HashTag-10")
+B_FC_5 <- subset(datC_5, idents = "HashTag-11")
+C_NoFR_5 <- subset(datC_5, idents = "HashTag-12")
+D_FR_5 <- subset(datC_5, idents = "HashTag-13")
+```
+
+```{r}
+#Adding group names to meta.data for later identification
+A_NoFC_1@meta.data$sample <- "A_NoFC_1"
+B_FC_1@meta.data$sample <- "B_FC_1"
+C_NoFR_1@meta.data$sample <- "C_NoFR_1"
+D_FR_1@meta.data$sample <- "D_FR_1"
+A_NoFC_2@meta.data$sample <- "A_NoFC_2"
+B_FC_2@meta.data$sample <- "B_FC_2"
+C_NoFR_2@meta.data$sample <- "C_NoFR_2"
+D_FR_2@meta.data$sample <- "D_FR_2"
+A_NoFC_3@meta.data$sample <- "A_NoFC_3"
+B_FC_3@meta.data$sample <- "B_FC_3"
+C_NoFR_3@meta.data$sample <- "C_NoFR_3"
+D_FR_3@meta.data$sample <- "D_FR_3"
+A_NoFC_4@meta.data$sample <- "A_NoFC_4"
+B_FC_4@meta.data$sample <- "B_FC_4"
+C_NoFR_4@meta.data$sample <- "C_NoFR_4"
+D_FR_4@meta.data$sample <- "D_FR_4"
+A_NoFC_5@meta.data$sample <- "A_NoFC_5"
+B_FC_5@meta.data$sample <- "B_FC_5"
+C_NoFR_5@meta.data$sample <- "C_NoFR_5"
+D_FR_5@meta.data$sample <- "D_FR_5"
+```
+
+```{r}
+A_NoFC <- c(A_NoFC_1, A_NoFC_2, A_NoFC_4, A_NoFC_5)
+B_FC <- c(B_FC_1, B_FC_2, B_FC_3, B_FC_4)
+C_NoFR <- c(C_NoFR_1, C_NoFR_2, C_NoFR_4, C_NoFR_5)
+D_FR <- c(D_FR_1, D_FR_2, D_FR_3, D_FR_4)
+
+A_NoFC.anchor <- FindIntegrationAnchors(object.list = A_NoFC)
+A_NoFC <- IntegrateData(
+  A_NoFC.anchor,
+  dims = 1:30,
+  k.weight = 46,
+)
+
+B_FC.anchor <- FindIntegrationAnchors(object.list = B_FC)
+B_FC <- IntegrateData(
+  B_FC.anchor,
+  dims = 1:30,
+  k.weight = 46,
+)
+
+C_NoFR.anchor <- FindIntegrationAnchors(object.list = C_NoFR)
+C_NoFR <- IntegrateData(
+  C_NoFR.anchor,
+  dims = 1:30,
+  k.weight = 46,
+)
+
+D_FR.anchor <- FindIntegrationAnchors(object.list = D_FR)
+D_FR <- IntegrateData(
+  D_FR.anchor,
+  dims = 1:30,
+  k.weight = 46,
+)
+
+
+A_NoFC@meta.data$group <- "A_NoFC"
+B_FC@meta.data$group <- "B_FC"
+C_NoFR@meta.data$group <- "C_NoFR"
+D_FR@meta.data$group <- "D_FR"
+
+data_ABCD <- c(A_NoFC, B_FC, C_NoFR, D_FR)
+
+data_ABCD.anchor <- FindIntegrationAnchors(object.list = data_ABCD)
+data_ABCD.integrated <- IntegrateData(anchorset = data_ABCD.anchor)
+data_ABCD.integrated2 <- ScaleData(object = data_ABCD.integrated, verbose = FALSE)
+data_ABCD <- RunPCA(data_ABCD.integrated2, verbose = FALSE)
+```
+
+```{r}
+data_ABCD <- FindNeighbors(data_ABCD, dims = 1:30)
+data_ABCD <- FindClusters(data_ABCD, resolution = 1)
+data_ABCD <- RunUMAP(object = data_ABCD, dims = 1:30)
+
+Idents(data_ABCD) <- "seurat_clusters"
+```
+
+```{r}
+saveRDS(data_ABCD, file="")
+```
