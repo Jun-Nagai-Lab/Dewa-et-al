@@ -1,5 +1,5 @@
 ---
-title: "Whole Brain FOS Analysis"
+title: "Statistical analysis of brain-wide astrocyte counts"
 ---
 ```{r}
 library(readxl)
